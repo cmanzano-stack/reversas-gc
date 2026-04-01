@@ -240,7 +240,7 @@ button:disabled { background: #ccc; cursor: not-allowed; }
 .total-bar span:first-child { font-size: 13px; font-weight: 600; color: #555; }
 .total-bar span:last-child  { font-size: 17px; font-weight: 700; color: #fa345e; }
 
-.submit-btn { width: 100%; padding: 15px; font-size: 16px; margin-top: 28px; }
+.submit-btn { width: 100%; padding: 15px; font-size: 16px; margin-top: 28px; transition: background 0.3s, opacity 0.2s; }
 </style>
 </head>
 <body>
@@ -902,9 +902,12 @@ function resetFormulario() {
   // País
   document.getElementById("pais").value = "";
 
-  // TomSelect empresa principal
-  if (panelTS) { panelTS.clear(); panelTS.destroy(); panelTS = null; }
-  resetSelect("panelEmpresa", "Selecciona empresa");
+  // TomSelect empresa principal — limpiar sin destruir
+  if (panelTS) {
+    try { panelTS.clear(); panelTS.clearOptions(); } catch(e) {}
+  } else {
+    resetSelect("panelEmpresa", "Selecciona empresa");
+  }
 
   // Sección GC
   document.getElementById("tipoGiftCard").value = "";
@@ -934,7 +937,9 @@ function resetFormulario() {
   document.getElementById("bloqueOtraEmpresaOrigen").classList.add("hidden");
 
   // Limpiar otra empresa origen si había
-  if (panelOrigenTS) { panelOrigenTS.destroy(); panelOrigenTS = null; }
+  if (panelOrigenTS) {
+    try { panelOrigenTS.clear(); panelOrigenTS.clearOptions(); } catch(e) {}
+  }
   resetSelect("panelOrigen", "Selecciona país primero");
   document.getElementById("paisOrigen").value = "";
   document.getElementById("idPanelOrigenHidden").value = "";
@@ -965,6 +970,7 @@ async function enviarSolicitud() {
   const btn = document.getElementById("submitBtn");
   btn.disabled = true;
   btn.textContent = "⏳ Enviando...";
+  btn.style.background = "#fa345e";
 
   try {
     const payload = buildPayload();
@@ -974,13 +980,14 @@ async function enviarSolicitud() {
       body: JSON.stringify(payload)
     });
     if (res.ok) {
-      showToast("✅ Solicitud enviada. Revisa tu correo.", "success");
       btn.textContent = "✅ Enviado";
-      // Limpiar formulario tras envío exitoso
+      btn.style.background = "#22c55e";
+      showToast("✅ Solicitud enviada. Revisa tu correo.", "success");
       setTimeout(() => {
-        resetFormulario();
-        btn.disabled = false;
+        try { resetFormulario(); } catch(e) { console.warn("Reset parcial:", e); }
         btn.textContent = "📨 Enviar Solicitud";
+        btn.style.background = "";
+        btn.disabled = false;
         enviando = false;
       }, 2500);
     } else {
@@ -988,8 +995,9 @@ async function enviarSolicitud() {
     }
   } catch(e) {
     showToast("❌ Error al enviar. Intenta de nuevo.", "error");
-    btn.disabled = false;
     btn.textContent = "📨 Enviar Solicitud";
+    btn.style.background = "";
+    btn.disabled = false;
     enviando = false;
   }
 }
