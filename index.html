@@ -293,8 +293,16 @@ button:disabled { background: #ccc; cursor: not-allowed; }
 ══════════════════════════════════════ -->
 <hr class="hr">
 
-<label>Correo del Solicitante</label>
-<input id="solEmail" type="email" placeholder="tu@empresa.cl" required />
+<div class="inline-row">
+  <div>
+    <label>Correo del Solicitante (Cliente)</label>
+    <input id="solEmail" type="email" placeholder="cliente@empresa.cl" required />
+  </div>
+  <div>
+    <label>Correo KAM Solicitante</label>
+    <input id="kamEmail" type="email" placeholder="kam@apprecio.com" required />
+  </div>
+</div>
 
 <div class="inline-row">
   <div>
@@ -442,7 +450,7 @@ button:disabled { background: #ccc; cursor: not-allowed; }
 ══════════════════════════════════════ */
 const API_URL_STOCK    = "https://n8n.openip.cl/webhook/gc-stock";
 const API_URL_EMPRESAS = "https://n8n.openip.cl/webhook/empresas";
-const WEBHOOK_REVERSAS = "https://n8n.openip.cl/webhook/solicitud-reversas";
+const WEBHOOK_REVERSAS = "https://n8n.openip.cl/webhook/solicitud-reversas"; // ← reemplazar con tu URL
 
 let empresasCache  = {};
 let panelTS        = null;
@@ -764,7 +772,9 @@ function validar() {
   if (!pais)    { showToast("Selecciona un país.", "error"); return false; }
   if (!empresa) { showToast("Selecciona la empresa.", "error"); return false; }
   if (!nombre)  { showToast("Ingresa tu nombre.", "error"); return false; }
-  if (!email)   { showToast("Ingresa tu correo electrónico.", "error"); return false; }
+  if (!email)   { showToast("Ingresa el correo del solicitante.", "error"); return false; }
+  const kamEmail = document.getElementById("kamEmail").value.trim();
+  if (!kamEmail) { showToast("Ingresa el correo KAM Solicitante.", "error"); return false; }
 
   if (tipo === "solicitud_gc") {
     if (!document.getElementById("tipoGiftCard").value) {
@@ -812,6 +822,7 @@ function buildPayload() {
     nombre:   document.getElementById("solNombre").value.trim(),
     area:     document.getElementById("solArea").value.trim(),
     email:    document.getElementById("solEmail").value.trim(),
+    kamEmail: document.getElementById("kamEmail").value.trim(),
     ticket:   nroTicket
   };
 
@@ -873,13 +884,88 @@ function buildPayload() {
 }
 
 /* ══════════════════════════════════════
+   RESET FORMULARIO COMPLETO
+══════════════════════════════════════ */
+function resetFormulario() {
+  // Campos solicitante
+  ["solEmail","kamEmail","solNombre","solArea","nroTicket"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+
+  // Campos empresa
+  ["rutEmpresa","razonSocial","idPanelHidden"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+
+  // País
+  document.getElementById("pais").value = "";
+
+  // TomSelect empresa principal
+  if (panelTS) { panelTS.clear(); panelTS.destroy(); panelTS = null; }
+  resetSelect("panelEmpresa", "Selecciona empresa");
+
+  // Sección GC
+  document.getElementById("tipoGiftCard").value = "";
+  document.getElementById("giftCardFisica").value = "No";
+  document.getElementById("gcComentarios").value = "";
+  resetSelect("sucursalGC", "Selecciona empresa primero");
+  document.getElementById("sucursalGC_id").value = "";
+  document.getElementById("sucursalGC_nombre").value = "";
+  document.getElementById("giftCardFields").innerHTML = "";
+  updateTotalBar();
+
+  // Sección Reversar
+  document.getElementById("reversarPuntos").value = "";
+  document.getElementById("reversarMotivo").value = "";
+  resetSelect("sucursalOrigen", "Selecciona empresa primero");
+  resetSelect("sucursalDestino", "Selecciona empresa primero");
+  ["sucursalOrigen_id","sucursalOrigen_nombre",
+   "sucursalDestino_id","sucursalDestino_nombre"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+
+  // Resetear toggle misma empresa a "sí"
+  document.getElementById("mismaEmpresaHidden").value = "si";
+  document.getElementById("btnMismaEmpresa").classList.add("active");
+  document.getElementById("btnOtraEmpresa").classList.remove("active");
+  document.getElementById("bloqueOtraEmpresaOrigen").classList.add("hidden");
+
+  // Limpiar otra empresa origen si había
+  if (panelOrigenTS) { panelOrigenTS.destroy(); panelOrigenTS = null; }
+  resetSelect("panelOrigen", "Selecciona país primero");
+  document.getElementById("paisOrigen").value = "";
+  document.getElementById("idPanelOrigenHidden").value = "";
+  document.getElementById("razonOrigenInput").value = "";
+
+  // Volver a tipo GC por defecto
+  document.getElementById("tipoSolicitudHidden").value = "solicitud_gc";
+  document.querySelectorAll(".toggle-btn[data-value]").forEach(b => {
+    b.classList.toggle("active", b.dataset.value === "solicitud_gc");
+  });
+  document.getElementById("seccion-solicitud_gc").classList.remove("hidden");
+  document.getElementById("seccion-reversar").classList.add("hidden");
+
+  // Limpiar cache empresas para forzar recarga fresca
+  empresasCache = {};
+}
+
+/* ══════════════════════════════════════
    ENVIAR
 ══════════════════════════════════════ */
+let enviando = false;
+
 async function enviarSolicitud() {
+  if (enviando) return;
   if (!validar()) return;
+
+  enviando = true;
   const btn = document.getElementById("submitBtn");
   btn.disabled = true;
   btn.textContent = "⏳ Enviando...";
+
   try {
     const payload = buildPayload();
     const res = await fetch(WEBHOOK_REVERSAS, {
@@ -890,7 +976,13 @@ async function enviarSolicitud() {
     if (res.ok) {
       showToast("✅ Solicitud enviada. Revisa tu correo.", "success");
       btn.textContent = "✅ Enviado";
-      setTimeout(() => { btn.disabled = false; btn.textContent = "📨 Enviar Solicitud"; }, 5000);
+      // Limpiar formulario tras envío exitoso
+      setTimeout(() => {
+        resetFormulario();
+        btn.disabled = false;
+        btn.textContent = "📨 Enviar Solicitud";
+        enviando = false;
+      }, 2500);
     } else {
       throw new Error("HTTP " + res.status);
     }
@@ -898,6 +990,7 @@ async function enviarSolicitud() {
     showToast("❌ Error al enviar. Intenta de nuevo.", "error");
     btn.disabled = false;
     btn.textContent = "📨 Enviar Solicitud";
+    enviando = false;
   }
 }
 
