@@ -463,6 +463,17 @@ let empresasOrigen = [];
 activarToggle("tipoSolicitudToggle", "tipoSolicitudHidden", (val) => {
   document.getElementById("seccion-solicitud_gc").classList.toggle("hidden", val !== "solicitud_gc");
   document.getElementById("seccion-reversar").classList.toggle("hidden", val !== "reversar");
+  // Limpiar sucursales y GC al cambiar sección para evitar datos cruzados
+  resetSelect("sucursalGC", "Selecciona empresa primero");
+  resetSelect("sucursalOrigen", "Selecciona empresa primero");
+  resetSelect("sucursalDestino", "Selecciona empresa primero");
+  ["sucursalGC_id","sucursalGC_nombre",
+   "sucursalOrigen_id","sucursalOrigen_nombre",
+   "sucursalDestino_id","sucursalDestino_nombre"].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = "";
+  });
+  document.getElementById("giftCardFields").innerHTML = "";
+  updateTotalBar();
 });
 
 activarToggle("mismaEmpresaToggle", "mismaEmpresaHidden", (val) => {
@@ -690,12 +701,19 @@ async function addGiftCardGroup() {
 
 async function cargarGiftCards(select) {
   const pais = document.getElementById("pais").value;
+  if (!pais) {
+    select.innerHTML = `<option value="">Selecciona país primero</option>`;
+    return;
+  }
   try {
     const res = await fetch(`${API_URL_STOCK}?pais=${encodeURIComponent(pais)}`);
     const data = await res.json();
     select.innerHTML = `<option value="">Selecciona</option>` +
       (data.giftCards || []).map(g => `<option value="${g}">${g}</option>`).join("");
-  } catch(e) { showToast("Error cargando gift cards", "error"); }
+  } catch(e) {
+    select.innerHTML = `<option value="">Error cargando GC</option>`;
+    showToast("Error cargando gift cards", "error");
+  }
 }
 
 async function cargarMontos(container, stock, warning, giftCard) {
@@ -899,51 +917,53 @@ function resetFormulario() {
     if (el) el.value = "";
   });
 
-  // País
+  // País — resetear dispara resetEmpresaPrincipal vía listener
   document.getElementById("pais").value = "";
 
-  // TomSelect empresa principal — limpiar sin destruir
-  if (panelTS) {
-    try { panelTS.clear(); panelTS.clearOptions(); } catch(e) {}
-  } else {
-    resetSelect("panelEmpresa", "Selecciona empresa");
-  }
+  // Destruir y recrear TomSelect empresa principal limpio
+  if (panelTS) { try { panelTS.destroy(); } catch(e){} panelTS = null; }
+  const selEmpresa = document.getElementById("panelEmpresa");
+  selEmpresa.innerHTML = '<option value="">Selecciona empresa</option>';
 
   // Sección GC
-  document.getElementById("tipoGiftCard").value = "";
-  document.getElementById("giftCardFisica").value = "No";
-  document.getElementById("gcComentarios").value = "";
+  const tipoGC = document.getElementById("tipoGiftCard");
+  if (tipoGC) tipoGC.value = "";
+  const gcFisica = document.getElementById("giftCardFisica");
+  if (gcFisica) gcFisica.value = "No";
+  const gcComent = document.getElementById("gcComentarios");
+  if (gcComent) gcComent.value = "";
   resetSelect("sucursalGC", "Selecciona empresa primero");
-  document.getElementById("sucursalGC_id").value = "";
-  document.getElementById("sucursalGC_nombre").value = "";
+  ["sucursalGC_id","sucursalGC_nombre"].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = "";
+  });
   document.getElementById("giftCardFields").innerHTML = "";
   updateTotalBar();
 
   // Sección Reversar
-  document.getElementById("reversarPuntos").value = "";
-  document.getElementById("reversarMotivo").value = "";
+  const revPuntos = document.getElementById("reversarPuntos");
+  if (revPuntos) revPuntos.value = "";
+  const revMotivo = document.getElementById("reversarMotivo");
+  if (revMotivo) revMotivo.value = "";
   resetSelect("sucursalOrigen", "Selecciona empresa primero");
   resetSelect("sucursalDestino", "Selecciona empresa primero");
   ["sucursalOrigen_id","sucursalOrigen_nombre",
    "sucursalDestino_id","sucursalDestino_nombre"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = "";
+    const el = document.getElementById(id); if (el) el.value = "";
   });
 
-  // Resetear toggle misma empresa a "sí"
+  // Resetear toggle misma empresa
   document.getElementById("mismaEmpresaHidden").value = "si";
   document.getElementById("btnMismaEmpresa").classList.add("active");
   document.getElementById("btnOtraEmpresa").classList.remove("active");
   document.getElementById("bloqueOtraEmpresaOrigen").classList.add("hidden");
 
-  // Limpiar otra empresa origen si había
-  if (panelOrigenTS) {
-    try { panelOrigenTS.clear(); panelOrigenTS.clearOptions(); } catch(e) {}
-  }
+  // Destruir TomSelect origen
+  if (panelOrigenTS) { try { panelOrigenTS.destroy(); } catch(e){} panelOrigenTS = null; }
   resetSelect("panelOrigen", "Selecciona país primero");
   document.getElementById("paisOrigen").value = "";
-  document.getElementById("idPanelOrigenHidden").value = "";
-  document.getElementById("razonOrigenInput").value = "";
+  ["idPanelOrigenHidden","razonOrigenInput"].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = "";
+  });
 
   // Volver a tipo GC por defecto
   document.getElementById("tipoSolicitudHidden").value = "solicitud_gc";
@@ -953,7 +973,7 @@ function resetFormulario() {
   document.getElementById("seccion-solicitud_gc").classList.remove("hidden");
   document.getElementById("seccion-reversar").classList.add("hidden");
 
-  // Limpiar cache empresas para forzar recarga fresca
+  // Limpiar cache para forzar recarga
   empresasCache = {};
 }
 
@@ -972,6 +992,13 @@ async function enviarSolicitud() {
   btn.textContent = "⏳ Enviando...";
   btn.style.background = "#fa345e";
 
+  const desbloquear = () => {
+    btn.textContent = "📨 Enviar Solicitud";
+    btn.style.background = "";
+    btn.disabled = false;
+    enviando = false;
+  };
+
   try {
     const payload = buildPayload();
     const res = await fetch(WEBHOOK_REVERSAS, {
@@ -984,21 +1011,15 @@ async function enviarSolicitud() {
       btn.style.background = "#22c55e";
       showToast("✅ Solicitud enviada. Revisa tu correo.", "success");
       setTimeout(() => {
-        try { resetFormulario(); } catch(e) { console.warn("Reset parcial:", e); }
-        btn.textContent = "📨 Enviar Solicitud";
-        btn.style.background = "";
-        btn.disabled = false;
-        enviando = false;
+        try { resetFormulario(); } catch(e) { console.warn("Reset error:", e); }
+        desbloquear();
       }, 2500);
     } else {
       throw new Error("HTTP " + res.status);
     }
   } catch(e) {
     showToast("❌ Error al enviar. Intenta de nuevo.", "error");
-    btn.textContent = "📨 Enviar Solicitud";
-    btn.style.background = "";
-    btn.disabled = false;
-    enviando = false;
+    desbloquear();
   }
 }
 
